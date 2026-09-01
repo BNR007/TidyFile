@@ -1,6 +1,6 @@
-# Tidy for Windows
+# TidyFile
 
-Tidy is a lightweight native file organizer. It runs only when opened, uses at most two worker threads, and never starts a background file watcher.
+A lightweight, privacy-focused Windows file organizer that previews and sorts files using customizable smart rules, local content inspection, themes, and one-click undo. Tidy runs only when opened, uses at most two worker threads, and never starts a background file watcher.
 
 ## Setup and run
 
