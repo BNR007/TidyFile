@@ -19,6 +19,10 @@ To create Windows builds:
 
 Generated environments, builds, caches, logs, and local activity data are excluded from source control.
 
+## Folder dates
+
+After a successful sort, all destination folders used in that operation and their category parents receive the same current **Date modified**. In Explorer, sort or group by **Date modified** to see them together under Today. Unrelated folders and the files' own timestamps are left unchanged; folder creation dates are not changed.
+
 ## Themes
 
 - Light: minimal white interface

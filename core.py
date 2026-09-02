@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import time
 import zipfile
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -14,7 +15,7 @@ from typing import Callable
 
 
 APP_NAME = "Tidy"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 CONTENT_LIMIT = 96 * 1024
 INSPECTION_FILE_LIMIT = 200
 
@@ -282,6 +283,24 @@ def load_history() -> tuple[Path | None, list[PlannedMove]]:
         return None, []
 
 
+def refresh_folder_dates(root: Path, completed: list[PlannedMove]) -> None:
+    """Give used destination folders one finish time, without changing file dates."""
+    folders: set[Path] = set()
+    for move in completed:
+        current = Path(move.destination).resolve().parent
+        while current != root and is_relative_to(current, root):
+            folders.add(current)
+            current = current.parent
+    finished_ns = time.time_ns()
+    for folder in sorted(folders, key=lambda path: (-len(path.parts), str(path))):
+        if not is_relative_to(folder, root):
+            raise ValueError(f"Unsafe folder timestamp target rejected: {folder}")
+        try:
+            os.utime(folder, ns=(folder.stat().st_atime_ns, finished_ns))
+        except OSError as error:
+            raise OSError(f"Files were moved, but Windows could not update the date of “{folder.name}”. Undo is still available.") from error
+
+
 def execute_plan(folder: Path, plan: list[PlannedMove], progress: Callable[[int, int, str], None] | None = None) -> list[PlannedMove]:
     root = validate_folder(folder)
     completed: list[PlannedMove] = []
@@ -304,6 +323,7 @@ def execute_plan(folder: Path, plan: list[PlannedMove], progress: Callable[[int,
         _save_history(root, completed)
         if progress:
             progress(index, total, move.name)
+    refresh_folder_dates(root, completed)
     return completed
 
 

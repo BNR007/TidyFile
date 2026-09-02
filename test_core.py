@@ -1,10 +1,12 @@
+import os
 import tempfile
+import time
 import unittest
 from collections import Counter
 from pathlib import Path
 from unittest.mock import patch
 
-from core import classify, document_group_key, execute_plan, scan_folder, undo_last, unique_path, validate_folder
+from core import classify, document_group_key, execute_plan, load_history, scan_folder, undo_last, unique_path, validate_folder
 
 
 class OrganizerTests(unittest.TestCase):
@@ -65,6 +67,53 @@ class OrganizerTests(unittest.TestCase):
                 self.assertTrue(Path(completed[0].destination).exists())
                 restored, _ = undo_last()
                 self.assertEqual(restored, 1)
+                self.assertTrue(source.exists())
+
+    def test_sort_refreshes_only_used_folder_dates_and_preserves_file_dates(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as app_data:
+            root = Path(directory).resolve()
+            existing = root / "Documents" / "Text & Word"
+            existing.mkdir(parents=True)
+            untouched = root / "Unrelated"
+            untouched.mkdir()
+            old_ns = 1_600_000_000_000_000_000
+            for folder in (existing, existing.parent, untouched):
+                os.utime(folder, ns=(old_ns, old_ns))
+            for name in ("notes.txt", "final-edit.mp4"):
+                source = root / name
+                source.write_text("sample", encoding="utf-8")
+                os.utime(source, ns=(old_ns, old_ns))
+            # Windows filesystem timestamp precision is 100 ns.
+            finished_ns = time.time_ns() // 100 * 100
+            with patch("core.local_app_data", return_value=Path(app_data)), patch("core.time.time_ns", return_value=finished_ns):
+                completed = execute_plan(root, scan_folder(root).moves)
+                for folder in (existing, existing.parent, root / "Videos", root / "Videos" / "Edits"):
+                    self.assertEqual(folder.stat().st_mtime_ns, finished_ns)
+                self.assertEqual(untouched.stat().st_mtime_ns, old_ns)
+                for move in completed:
+                    self.assertEqual(Path(move.destination).stat().st_mtime_ns, old_ns)
+                restored, _ = undo_last()
+                self.assertEqual(restored, 2)
+
+    def test_empty_sort_does_not_touch_folder_dates(self):
+        with tempfile.TemporaryDirectory() as directory, patch("core.os.utime") as touch:
+            self.assertEqual(execute_plan(Path(directory), []), [])
+            touch.assert_not_called()
+
+    def test_timestamp_failure_keeps_move_history_for_undo(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as app_data:
+            root = Path(directory)
+            source = root / "notes.txt"
+            source.write_text("sample", encoding="utf-8")
+            with patch("core.local_app_data", return_value=Path(app_data)):
+                plan = scan_folder(root).moves
+                with patch("core.os.utime", side_effect=PermissionError("denied")):
+                    with self.assertRaisesRegex(OSError, "Files were moved.*Undo is still available"):
+                        execute_plan(root, plan)
+                _, history = load_history()
+                self.assertEqual(len(history), 1)
+                self.assertTrue(Path(history[0].destination).exists())
+                self.assertEqual(undo_last()[0], 1)
                 self.assertTrue(source.exists())
 
 
